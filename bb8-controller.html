@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BB-8 Follow Controller</title>
+<style>
+  body {
+    background: #0d1117;
+    color: #f5f5f5;
+    font-family: Arial, sans-serif;
+    text-align: center;
+    padding: 40px;
+  }
+  button {
+    padding: 14px 28px;
+    font-size: 18px;
+    margin: 20px;
+    border: none;
+    border-radius: 10px;
+    background: #ff8c00;
+    color: white;
+    cursor: pointer;
+  }
+  button:hover { background: #e67800; }
+  .status { margin-top: 20px; font-size: 18px; }
+</style>
+</head>
+<body>
+  <h1>BB-8 Follow Controller</h1>
+  <button id="connectBtn">🔗 Connect BB-8</button>
+  <div class="status" id="status">Status: Not connected</div>
+<script>
+let bb8Device = null;
+let gattServer = null;
+let controlService = null;
+let txCharacteristic = null;
+
+// UUIDs for Sphero BB-8 control (BLE GATT)
+const CONTROL_SERVICE_UUID = '22bb746f-2ba0-7554-2d6f-726568705327';
+const TX_CHARACTERISTIC_UUID = '22bb746f-2ba1-7554-2d6f-726568705327';
+
+document.getElementById("connectBtn").addEventListener("click", async () => {
+  try {
+    bb8Device = await navigator.bluetooth.requestDevice({
+      filters: [{ name: 'BB-DB71' }],
+      optionalServices: [CONTROL_SERVICE_UUID]
+    });
+
+    gattServer = await bb8Device.gatt.connect();
+    controlService = await gattServer.getPrimaryService(CONTROL_SERVICE_UUID);
+    txCharacteristic = await controlService.getCharacteristic(TX_CHARACTERISTIC_UUID);
+
+    document.getElementById("status").innerText = "✅ Connected to BB-8!";
+    playChirp();
+    startVoiceRecognition();
+
+  } catch (error) {
+    console.error(error);
+    document.getElementById("status").innerText = "❌ Connection failed";
+  }
+});
+// 🎤 Voice recognition setup
+function startVoiceRecognition() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    alert("❌ Speech Recognition not supported on this browser.");
+    return;
+  }
+
+  const recognition = new SpeechRecognition();
+  recognition.lang = "en-US";
+  recognition.continuous = true;
+
+  recognition.onresult = (event) => {
+    const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
+    console.log("Voice command:", transcript);
+
+    if (transcript.includes("follow")) {
+      document.getElementById("status").innerText = "🤖 Following...";
+      playChirp();
+      followYou();
+    } else if (transcript.includes("stay")) {
+      document.getElementById("status").innerText = "🛑 Staying...";
+      playChirp();
+      stopBB8();
+    }
+  };
+
+  recognition.start();
+  document.getElementById("status").innerText = "🎤 Voice listening...";
+}
+
+// 🧭 Roll forward ~3 ft (~0.9 m)
+async function followYou() {
+  if (!txCharacteristic) return;
+  // Command to roll forward (speed ~100, heading 0)
+  const rollCommand = new Uint8Array([0x02, 0x30, 0x01, 0x64, 0x00]);
+  await txCharacteristic.writeValue(rollCommand);
+
+  // Stop after ~2 seconds (roughly 3 ft depending on speed)
+  setTimeout(stopBB8, 2000);
+}
+
+// 🛑 Stop BB-8
+async function stopBB8() {
+  if (!txCharacteristic) return;
+  const stopCommand = new Uint8Array([0x02, 0x32, 0x01, 0x00, 0x00]);
+  await txCharacteristic.writeValue(stopCommand);
+}
+// 🔊 Play chirp sound (phone speaker)
+function playChirp() {
+  const audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+  audio.play();
+}
+
+</script>
+</body>
+</html>
