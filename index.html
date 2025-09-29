@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>BB-8 Follow Controller</title>
+<title>BB-8 Voice Follow</title>
 <style>
   body {
     background: #0d1117;
@@ -13,26 +13,21 @@
     padding: 40px;
   }
   button {
-    padding: 14px 28px;
-    font-size: 18px;
+    padding: 16px 32px;
+    font-size: 20px;
     margin: 20px;
     border: none;
-    border-radius: 10px;
+    border-radius: 12px;
     background: #ff8c00;
     color: white;
     cursor: pointer;
   }
-  button:hover {
-    background: #e67800;
-  }
-  .status {
-    margin-top: 20px;
-    font-size: 18px;
-  }
+  button:hover { background: #e67800; }
+  .status { margin-top: 20px; font-size: 18px; }
 </style>
 </head>
 <body>
-  <h1>BB-8 Follow Controller</h1>
+  <h1>🤖 BB-8 Voice Controller</h1>
   <button id="connectBtn">🔗 Connect BB-8</button>
   <div class="status" id="status">Status: Not connected</div>
 
@@ -42,37 +37,38 @@ let gattServer = null;
 let controlService = null;
 let txCharacteristic = null;
 
-// ✅ BLE UUIDs for BB-8
-const CONTROL_SERVICE_UUID = '22bb746f-2ba0-7554-2d6f-726568705327';
-const TX_CHARACTERISTIC_UUID = '22bb746f-2ba1-7554-2d6f-726568705327';
+// BLE UUIDs for Sphero BB-8
+const CONTROL_SERVICE_UUID = "22bb746f-2ba0-7554-2d6f-726568705327";
+const TX_CHARACTERISTIC_UUID = "22bb746f-2ba1-7554-2d6f-726568705327";
 
-// 🔌 Connect Button
+// 🔗 Connect to BB-8
 document.getElementById("connectBtn").addEventListener("click", async () => {
   try {
     bb8Device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: "BB-" }],
-      optionalServices: [CONTROL_SERVICE_UUID]
+      filters: [{ namePrefix: "BB" }], // works even if name isn't exact
+      optionalServices: [CONTROL_SERVICE_UUID],
     });
 
     gattServer = await bb8Device.gatt.connect();
     controlService = await gattServer.getPrimaryService(CONTROL_SERVICE_UUID);
     txCharacteristic = await controlService.getCharacteristic(TX_CHARACTERISTIC_UUID);
 
-    document.getElementById("status").innerText = "✅ Connected to BB-8!";
+    document.getElementById("status").innerText = "✅ Connected to BB-8! Waiting for command...";
     playChirp();
+    stopBB8(); // Make sure BB-8 stays still
     startVoiceRecognition();
 
   } catch (error) {
     console.error(error);
-    document.getElementById("status").innerText = "❌ Connection failed: " + error;
+    document.getElementById("status").innerText = "❌ Connection failed";
   }
 });
 
-// 🧠 Voice Recognition
+// 🎤 Voice recognition (Follow / Stop)
 function startVoiceRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    alert("❌ Speech Recognition not supported in this browser.");
+    alert("❌ Speech Recognition not supported.");
     return;
   }
 
@@ -85,30 +81,26 @@ function startVoiceRecognition() {
     console.log("Voice command:", transcript);
 
     if (transcript.includes("follow")) {
-      document.getElementById("status").innerText = "🤖 Following (getting close)...";
+      document.getElementById("status").innerText = "🤖 Following...";
       playChirp();
       followYou();
-    } else if (transcript.includes("stay")) {
-      document.getElementById("status").innerText = "🛑 Staying still...";
+    } else if (transcript.includes("stop")) {
+      document.getElementById("status").innerText = "🛑 Stopped.";
       playChirp();
       stopBB8();
     }
   };
 
   recognition.start();
-  document.getElementById("status").innerText = "🎤 Voice listening...";
+  document.getElementById("status").innerText = "🎤 Listening for 'follow' or 'stop'...";
 }
 
-// 🧭 Move Forward — tuned for short distance (~1 ft)
+// 🟠 Make BB-8 roll forward briefly (~1 meter)
 async function followYou() {
   if (!txCharacteristic) return;
-
-  // Command: roll forward with moderate speed and heading 0°
-  const rollCommand = new Uint8Array([0x02, 0x30, 0x01, 0x60, 0x00]);
+  const rollCommand = new Uint8Array([0x02, 0x30, 0x01, 0x64, 0x00]); // speed 100, forward
   await txCharacteristic.writeValue(rollCommand);
-
-  // Stop quickly (shorter time = closer stop)
-  setTimeout(stopBB8, 800); 
+  setTimeout(stopBB8, 1500); // stop after ~1.5s (adjust distance here)
 }
 
 // 🛑 Stop BB-8
@@ -118,17 +110,7 @@ async function stopBB8() {
   await txCharacteristic.writeValue(stopCommand);
 }
 
-// 🔊 Chirp for feedback
-function playChirp() {
-  const audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
-  audio.play();
-}
-</script>
-</body>
-</html>
-  await txCharacteristic.writeValue(stopCommand);
-}
-
+// 🔊 Beep for feedback
 function playChirp() {
   const audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
   audio.play();
