@@ -1,106 +1,127 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
 <head>
-<meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>BB-8 Voice Follow</title>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>BB-8 Voice Come Controller</title>
 <style>
-  body {
-    background: #0d1117;
-    color: #f5f5f5;
-    font-family: Arial, sans-serif;
-    text-align: center;
-    padding: 40px;
-  }
-  button {
-    padding: 16px 32px;
-    font-size: 20px;
-    margin: 20px;
-    border: none;
-    border-radius: 12px;
-    background: #ff8c00;
-    color: white;
-    cursor: pointer;
-  }
-  button:hover { background: #e67800; }
-  .status { margin-top: 20px; font-size: 18px; }
+  :root{--bg:#0d1117;--panel:#111318;--accent:#ff8c00;--text:#f5f5f5}
+  html,body{height:100%;margin:0;background:var(--bg);color:var(--text);font-family:Inter,system-ui,Segoe UI,Arial;text-align:center}
+  .wrap{max-width:760px;margin:48px auto;padding:20px}
+  h1{font-size:2.2rem;margin:0 0 18px}
+  button{background:var(--accent);border:none;padding:14px 28px;border-radius:12px;color:#fff;font-size:18px;cursor:pointer;box-shadow:0 4px 10px rgba(0,0,0,.3)}
+  button:active{transform:translateY(1px)}
+  .status{margin-top:18px;font-size:18px}
+  .log{margin-top:18px;padding:12px;border-radius:10px;background:rgba(255,255,255,0.03);text-align:left;font-family:monospace;white-space:pre-wrap;height:140px;overflow:auto}
+  .controls{margin-top:20px;display:flex;gap:12px;justify-content:center}
+  .small{font-size:0.9rem;color:#cfcfcf}
+  .muted{opacity:.7}
 </style>
 </head>
 <body>
-  <h1>🤖 BB-8 Voice Controller</h1>
-  <button id="connectBtn">🔗 Connect BB-8</button>
-  <div class="status" id="status">Status: Not connected</div>
+  <div class="wrap">
+    <h1>🤖 BB-8 Voice “Come” Controller</h1>
+    <button id="connectBtn">🔗 Connect BB-8</button>
+    <div class="status" id="status">Status: not connected</div>
+
+    <div class="controls" id="controls" style="display:none">
+      <button id="startVoiceBtn">🎤 Start Listening</button>
+      <button id="stopVoiceBtn" style="display:none">⏸️ Stop Listening</button>
+      <button id="manualFollowBtn">▶ Manual Come</button>
+      <button id="manualStopBtn">■ Stop</button>
+    </div>
+
+    <div class="log" id="log">Console/log will appear here.</div>
+    <p class="small muted">Say <strong>“come”</strong> to make BB-8 roll and <strong>“stop”</strong> to halt. Chrome on Android only.</p>
+  </div>
 
 <script>
-let bb8Device = null;
-let gattServer = null;
-let controlService = null;
-let txCharacteristic = null;
+(() => {
+  const CONTROL_SERVICE_UUID = '22bb746f-2ba0-7554-2d6f-726568705327';
+  const TX_CHARACTERISTIC_UUID = '22bb746f-2ba1-7554-2d6f-726568705327';
+  const DEVICE_NAME_PREFIXES = ['BB', 'BB-', 'BB-DB', 'Sphero'];
 
-// BLE UUIDs for Sphero BB-8
-const CONTROL_SERVICE_UUID = "22bb746f-2ba0-7554-2d6f-726568705327";
-const TX_CHARACTERISTIC_UUID = "22bb746f-2ba1-7554-2d6f-726568705327";
+  let bb8Device = null;
+  let gattServer = null;
+  let txCharacteristic = null;
+  let followInterval = null;
+  let recognition = null;
+  let listening = false;
 
-// 🔗 Connect to BB-8
-document.getElementById("connectBtn").addEventListener("click", async () => {
-  try {
-    bb8Device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: "BB" }], // works even if name isn't exact
-      optionalServices: [CONTROL_SERVICE_UUID],
-    });
+  const $ = sel => document.querySelector(sel);
+  const logEl = $('#log');
+  function log(...args){ console.log(...args); logEl.textContent += '\n' + args.map(a => (typeof a==='object'? JSON.stringify(a): String(a))).join(' '); logEl.scrollTop = logEl.scrollHeight; }
+  function setStatus(text){ $('#status').innerText = 'Status: ' + text; log('[STATUS]', text); }
+  function playChirp(){ try{ new Audio('https://actions.google.com/sounds/v1/alarms/beep_short.ogg').play(); }catch(e){} }
+  function uint8From(...nums){ return new Uint8Array(nums); }
+  async function sendCommand(cmdUint8){ if(txCharacteristic) try{ await txCharacteristic.writeValue(cmdUint8);}catch(e){log('write error',e);} }
+  function makeRollCommand(speed=120, heading=0){ return uint8From(0x02,0x30,0x01,speed&0xFF,heading&0xFF); }
+  function makeStopCommand(){ return uint8From(0x02,0x32,0x01,0x00,0x00); }
 
-    gattServer = await bb8Device.gatt.connect();
-    controlService = await gattServer.getPrimaryService(CONTROL_SERVICE_UUID);
-    txCharacteristic = await controlService.getCharacteristic(TX_CHARACTERISTIC_UUID);
-
-    document.getElementById("status").innerText = "✅ Connected to BB-8! Waiting for command...";
-    playChirp();
-    stopBB8(); // Make sure BB-8 stays still
-    startVoiceRecognition();
-
-  } catch (error) {
-    console.error(error);
-    document.getElementById("status").innerText = "❌ Connection failed";
+  async function startFollowing(){
+    if (!txCharacteristic || followInterval) return;
+    playChirp(); setStatus('Rolling...');
+    await sendCommand(makeRollCommand(120,0));
+    followInterval = setInterval(()=>sendCommand(makeRollCommand(120,0)),600);
   }
-});
-
-// 🎤 Voice recognition (Follow / Stop)
-function startVoiceRecognition() {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    alert("❌ Speech Recognition not supported.");
-    return;
+  async function stopFollowing(){
+    if (followInterval){ clearInterval(followInterval); followInterval = null; }
+    if (!txCharacteristic) return;
+    await sendCommand(makeStopCommand());
+    playChirp(); setStatus('Stopped');
   }
 
-  const recognition = new SpeechRecognition();
-  recognition.lang = "en-US";
-  recognition.continuous = true;
+  async function connectToDevice(){
+    if (!navigator.bluetooth) return alert('Web Bluetooth not supported.');
+    setStatus('Requesting device...');
+    try {
+      bb8Device = await navigator.bluetooth.requestDevice({filters: DEVICE_NAME_PREFIXES.map(p=>({namePrefix:p})),optionalServices:[CONTROL_SERVICE_UUID]});
+      gattServer = await bb8Device.gatt.connect();
+      const srv = await gattServer.getPrimaryService(CONTROL_SERVICE_UUID);
+      txCharacteristic = await srv.getCharacteristic(TX_CHARACTERISTIC_UUID);
+      setStatus('✅ Connected to ' + (bb8Device.name||'BB-8'));
+      $('#controls').style.display='flex';
+      startRecognition();
+      bb8Device.addEventListener('gattserverdisconnected',()=>{ setStatus('Disconnected'); txCharacteristic=null; $('#controls').style.display='none'; });
+    } catch (err){ log('connect error',err); setStatus('❌ Connection failed'); }
+  }
 
-  recognition.onresult = (event) => {
-    const transcript = event.results[event.results.length - 1][0].transcript.trim().toLowerCase();
-    console.log("Voice command:", transcript);
+  function setupRecognition(){
+    if (recognition) return recognition;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (!SpeechRecognition) return alert('Speech Recognition not supported');
+    recognition = new SpeechRecognition();
+    recognition.lang = 'en-US';
+    recognition.continuous = true;
+    recognition.interimResults = false;
 
-    if (transcript.includes("follow")) {
-      document.getElementById("status").innerText = "🤖 Following...";
-      playChirp();
-      followYou();
-    } else if (transcript.includes("stop")) {
-      document.getElementById("status").innerText = "🛑 Stopped.";
-      playChirp();
-      stopBB8();
-    }
-  };
+    recognition.onstart = ()=>{ listening=true; $('#startVoiceBtn').style.display='none'; $('#stopVoiceBtn').style.display='inline-block'; setStatus('🎤 Listening for "come"/"stop"'); };
+    recognition.onend = ()=>{ listening=false; $('#startVoiceBtn').style.display='inline-block'; $('#stopVoiceBtn').style.display='none'; setStatus('Speech stopped'); };
+    recognition.onerror = e=>log('speech error',e.error);
 
-  recognition.start();
-  document.getElementById("status").innerText = "🎤 Listening for 'follow' or 'stop'...";
-}
+    recognition.onresult = async ev => {
+      const phrase = ev.results[ev.results.length-1][0].transcript.trim().toLowerCase();
+      log('heard:', phrase);
+      if (phrase.includes('come')) { log('VOICE: COME'); await startFollowing(); }
+      else if (phrase.includes('stop')) { log('VOICE: STOP'); await stopFollowing(); }
+      else { log('unrecognized:', phrase); }
+    };
+    return recognition;
+  }
+  function startRecognition(){ const r=setupRecognition(); if(r) try{r.start();}catch(e){} }
+  function stopRecognition(){ if(recognition) try{recognition.stop();}catch(e){} }
 
-// 🟠 Make BB-8 roll forward briefly (~1 meter)
-async function followYou() {
-  if (!txCharacteristic) return;
-  const rollCommand = new Uint8Array([0x02, 0x30, 0x01, 0x64, 0x00]); // speed 100, forward
-  await txCharacteristic.writeValue(rollCommand);
-  setTimeout(stopBB8, 1500); // stop after ~1.5s (adjust distance here)
+  $('#connectBtn').addEventListener('click', connectToDevice);
+  $('#startVoiceBtn').addEventListener('click', startRecognition);
+  $('#stopVoiceBtn').addEventListener('click', stopRecognition);
+  $('#manualFollowBtn').addEventListener('click', startFollowing);
+  $('#manualStopBtn').addEventListener('click', stopFollowing);
+
+  setStatus('Ready — press Connect BB-8');
+})();
+</script>
+</body>
+</html>
 }
 
 // 🛑 Stop BB-8
