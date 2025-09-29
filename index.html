@@ -22,8 +22,13 @@
     color: white;
     cursor: pointer;
   }
-  button:hover { background: #e67800; }
-  .status { margin-top: 20px; font-size: 18px; }
+  button:hover {
+    background: #e67800;
+  }
+  .status {
+    margin-top: 20px;
+    font-size: 18px;
+  }
 </style>
 </head>
 <body>
@@ -37,13 +42,15 @@ let gattServer = null;
 let controlService = null;
 let txCharacteristic = null;
 
+// ✅ BLE UUIDs for BB-8
 const CONTROL_SERVICE_UUID = '22bb746f-2ba0-7554-2d6f-726568705327';
 const TX_CHARACTERISTIC_UUID = '22bb746f-2ba1-7554-2d6f-726568705327';
 
+// 🔌 Connect Button
 document.getElementById("connectBtn").addEventListener("click", async () => {
   try {
     bb8Device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: 'BB-' }], // ✅ broader search
+      filters: [{ namePrefix: "BB-" }],
       optionalServices: [CONTROL_SERVICE_UUID]
     });
 
@@ -57,14 +64,15 @@ document.getElementById("connectBtn").addEventListener("click", async () => {
 
   } catch (error) {
     console.error(error);
-    document.getElementById("status").innerText = "❌ Connection failed";
+    document.getElementById("status").innerText = "❌ Connection failed: " + error;
   }
 });
 
+// 🧠 Voice Recognition
 function startVoiceRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    alert("❌ Speech Recognition not supported.");
+    alert("❌ Speech Recognition not supported in this browser.");
     return;
   }
 
@@ -77,11 +85,11 @@ function startVoiceRecognition() {
     console.log("Voice command:", transcript);
 
     if (transcript.includes("follow")) {
-      document.getElementById("status").innerText = "🤖 Moving closer...";
+      document.getElementById("status").innerText = "🤖 Following (getting close)...";
       playChirp();
       followYou();
     } else if (transcript.includes("stay")) {
-      document.getElementById("status").innerText = "🛑 Staying...";
+      document.getElementById("status").innerText = "🛑 Staying still...";
       playChirp();
       stopBB8();
     }
@@ -91,16 +99,33 @@ function startVoiceRecognition() {
   document.getElementById("status").innerText = "🎤 Voice listening...";
 }
 
+// 🧭 Move Forward — tuned for short distance (~1 ft)
 async function followYou() {
   if (!txCharacteristic) return;
-  const rollCommand = new Uint8Array([0x02, 0x30, 0x01, 0x80, 0x00]); // slightly faster
+
+  // Command: roll forward with moderate speed and heading 0°
+  const rollCommand = new Uint8Array([0x02, 0x30, 0x01, 0x60, 0x00]);
   await txCharacteristic.writeValue(rollCommand);
-  setTimeout(stopBB8, 1500); // stop a bit sooner (closer movement)
+
+  // Stop quickly (shorter time = closer stop)
+  setTimeout(stopBB8, 800); 
 }
 
+// 🛑 Stop BB-8
 async function stopBB8() {
   if (!txCharacteristic) return;
   const stopCommand = new Uint8Array([0x02, 0x32, 0x01, 0x00, 0x00]);
+  await txCharacteristic.writeValue(stopCommand);
+}
+
+// 🔊 Chirp for feedback
+function playChirp() {
+  const audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
+  audio.play();
+}
+</script>
+</body>
+</html>
   await txCharacteristic.writeValue(stopCommand);
 }
 
