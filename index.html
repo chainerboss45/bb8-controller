@@ -12,28 +12,18 @@
     text-align: center;
     padding: 40px;
   }
-  h1 {
-    font-size: 2.5em;
-    margin-bottom: 30px;
-  }
   button {
-    padding: 16px 32px;
-    font-size: 20px;
+    padding: 14px 28px;
+    font-size: 18px;
     margin: 20px;
     border: none;
-    border-radius: 12px;
+    border-radius: 10px;
     background: #ff8c00;
     color: white;
     cursor: pointer;
-    transition: background 0.2s;
   }
-  button:hover {
-    background: #e67800;
-  }
-  .status {
-    margin-top: 25px;
-    font-size: 20px;
-  }
+  button:hover { background: #e67800; }
+  .status { margin-top: 20px; font-size: 18px; }
 </style>
 </head>
 <body>
@@ -47,15 +37,13 @@ let gattServer = null;
 let controlService = null;
 let txCharacteristic = null;
 
-// BLE UUIDs for Sphero BB-8
 const CONTROL_SERVICE_UUID = '22bb746f-2ba0-7554-2d6f-726568705327';
 const TX_CHARACTERISTIC_UUID = '22bb746f-2ba1-7554-2d6f-726568705327';
 
 document.getElementById("connectBtn").addEventListener("click", async () => {
   try {
-    // 🔌 Request BB-8 over Bluetooth
     bb8Device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: 'BB-' }],
+      filters: [{ namePrefix: 'BB-' }], // ✅ broader search
       optionalServices: [CONTROL_SERVICE_UUID]
     });
 
@@ -66,17 +54,17 @@ document.getElementById("connectBtn").addEventListener("click", async () => {
     document.getElementById("status").innerText = "✅ Connected to BB-8!";
     playChirp();
     startVoiceRecognition();
+
   } catch (error) {
     console.error(error);
     document.getElementById("status").innerText = "❌ Connection failed";
   }
 });
 
-// 🎤 Voice recognition
 function startVoiceRecognition() {
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   if (!SpeechRecognition) {
-    alert("❌ Speech Recognition not supported on this browser.");
+    alert("❌ Speech Recognition not supported.");
     return;
   }
 
@@ -93,55 +81,33 @@ function startVoiceRecognition() {
       playChirp();
       followYou();
     } else if (transcript.includes("stay")) {
-      document.getElementById("status").innerText = "🛑 Staying in place...";
+      document.getElementById("status").innerText = "🛑 Staying...";
       playChirp();
       stopBB8();
     }
   };
 
   recognition.start();
-  document.getElementById("status").innerText = "🎤 Listening for 'follow' or 'stay'...";
+  document.getElementById("status").innerText = "🎤 Voice listening...";
 }
 
-// 🧭 Roll forward ~1 ft (~0.3 m)
 async function followYou() {
   if (!txCharacteristic) return;
-  // Slower roll (speed ~40)
-  const rollCommand = new Uint8Array([0x02, 0x30, 0x01, 0x28, 0x00]);
+  const rollCommand = new Uint8Array([0x02, 0x30, 0x01, 0x80, 0x00]); // slightly faster
   await txCharacteristic.writeValue(rollCommand);
-
-  // Stop after ~0.5 sec (about 1 ft)
-  setTimeout(stopBB8, 500);
+  setTimeout(stopBB8, 1500); // stop a bit sooner (closer movement)
 }
 
-// 🛑 Stop BB-8
 async function stopBB8() {
   if (!txCharacteristic) return;
   const stopCommand = new Uint8Array([0x02, 0x32, 0x01, 0x00, 0x00]);
   await txCharacteristic.writeValue(stopCommand);
 }
 
-// 🔊 Chirp sound
 function playChirp() {
   const audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
   audio.play();
 }
-</script>
-</body>
-</html>
-
-// 🛑 Stop BB-8
-async function stopBB8() {
-  if (!txCharacteristic) return;
-  const stopCommand = new Uint8Array([0x02, 0x32, 0x01, 0x00, 0x00]);
-  await txCharacteristic.writeValue(stopCommand);
-}
-// 🔊 Play chirp sound (phone speaker)
-function playChirp() {
-  const audio = new Audio("https://actions.google.com/sounds/v1/alarms/beep_short.ogg");
-  audio.play();
-}
-
 </script>
 </body>
 </html>
